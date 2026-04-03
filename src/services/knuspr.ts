@@ -240,16 +240,18 @@ export async function searchProducts(
   ]);
 
   const text = getToolText(dataResult);
+  console.log('[knuspr] raw search response:', text);
 
   try {
     const parsed = JSON.parse(text);
     const products: KnusprProduct[] = [];
-    const items = Array.isArray(parsed) ? parsed : parsed.results || parsed.products || [parsed];
 
+    // Build image map from parallel request
     const imageMap: Record<number, string> = {};
     if (imgResult) {
       try {
-        const imgParsed = JSON.parse(getToolText(imgResult));
+        const imgText = getToolText(imgResult);
+        const imgParsed = JSON.parse(imgText);
         const imgItems = Array.isArray(imgParsed) ? imgParsed : imgParsed.results || [imgParsed];
         for (const item of imgItems) {
           for (const p of item.products || []) {
@@ -259,27 +261,40 @@ export async function searchProducts(
       } catch { /* ignore */ }
     }
 
-    for (const item of items) {
-      const prods = item.products || item.items || (Array.isArray(item) ? item : [item]);
-      for (const p of prods) {
-        const pid = p.productId || p.id || p.product_id;
-        if (pid) {
-          const price = p.price && typeof p.price === 'object'
-            ? `${p.price.full} ${p.price.currency || '\u20AC'}`
-            : (p.price != null ? String(p.price) : undefined);
-          products.push({
-            id: Number(pid),
-            name: String(p.productName || p.name || p.title || ''),
-            price,
-            unit: p.textualAmount ? String(p.textualAmount) : (p.unit ? String(p.unit) : undefined),
-            image: resolveImageUrl(imageMap[Number(pid)] || p.imgPath || p.image || p.image_url),
-          });
-        }
+    // Recursively find all objects with a productId field
+    function extractProducts(obj: unknown): void {
+      if (!obj || typeof obj !== 'object') return;
+      if (Array.isArray(obj)) {
+        for (const el of obj) extractProducts(el);
+        return;
+      }
+      const rec = obj as Record<string, unknown>;
+      const pid = rec.productId || rec.id || rec.product_id;
+      if (pid && (rec.productName || rec.name || rec.title)) {
+        const price = rec.price && typeof rec.price === 'object'
+          ? `${(rec.price as Record<string, unknown>).full} ${(rec.price as Record<string, unknown>).currency || '\u20AC'}`
+          : (rec.price != null ? String(rec.price) : undefined);
+        products.push({
+          id: Number(pid),
+          name: String(rec.productName || rec.name || rec.title || ''),
+          price,
+          unit: rec.textualAmount ? String(rec.textualAmount) : (rec.unit ? String(rec.unit) : undefined),
+          image: resolveImageUrl(imageMap[Number(pid)] || rec.imgPath || rec.image || rec.image_url),
+        });
+        return; // don't recurse into product children
+      }
+      // Recurse into nested arrays/objects
+      for (const val of Object.values(rec)) {
+        if (val && typeof val === 'object') extractProducts(val);
       }
     }
 
+    extractProducts(parsed);
+
+    console.log('[knuspr] parsed products:', products.length);
     return products;
-  } catch {
+  } catch (e) {
+    console.error('[knuspr] parse error:', e, 'raw:', text);
     return [{ id: 0, name: text }];
   }
 }

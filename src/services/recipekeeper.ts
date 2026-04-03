@@ -1,6 +1,8 @@
 import type { ShoppingData, ShoppingListItem } from '../types/index.ts';
 
-const RK_ORIGIN = 'https://recipekeeper.azurewebsites.net';
+const RK_BASE = import.meta.env.DEV
+  ? '/rk-api'
+  : 'https://recipekeeper.azurewebsites.net';
 
 const EPOCH = '1601-01-01T00:00:00Z';
 
@@ -13,15 +15,8 @@ const RK_HEADERS: Record<string, string> = {
   'X-RK-AppVersion': '3.45.0',
 };
 
-function rkBase(proxyUrl: string): string {
-  if (import.meta.env.DEV) return '/rk-api';
-  if (proxyUrl) return proxyUrl.replace(/\/$/, '');
-  return RK_ORIGIN;
-}
-
-export async function signIn(email: string, password: string, proxyUrl: string): Promise<string> {
-  const base = rkBase(proxyUrl);
-  const res = await fetch(`${base}/token`, {
+export async function signIn(email: string, password: string): Promise<string> {
+  const res = await fetch(`${RK_BASE}/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -62,9 +57,8 @@ interface SyncResponse {
   };
 }
 
-async function syncPull(token: string, payload: Record<string, unknown>, proxyUrl: string): Promise<SyncResponse> {
-  const base = rkBase(proxyUrl);
-  const res = await fetch(`${base}/api/sync`, {
+async function syncPull(token: string, payload: Record<string, unknown>): Promise<SyncResponse> {
+  const res = await fetch(`${RK_BASE}/api/sync`, {
     method: 'POST',
     headers: {
       ...RK_HEADERS,
@@ -93,7 +87,7 @@ function maxLastModified(items: Array<Record<string, unknown>>): string {
   return max;
 }
 
-export async function pullShoppingData(token: string, proxyUrl: string): Promise<ShoppingData> {
+export async function pullShoppingData(token: string): Promise<ShoppingData> {
   const allLists: Array<Record<string, unknown>> = [];
   const allItems: Array<Record<string, unknown>> = [];
   const allCategories: Array<Record<string, unknown>> = [];
@@ -132,7 +126,7 @@ export async function pullShoppingData(token: string, proxyUrl: string): Promise
       },
     };
 
-    const response = await syncPull(token, payload, proxyUrl);
+    const response = await syncPull(token, payload);
     hasMore = false;
 
     const listResp = response.ShoppingListSyncEntityResponse;
@@ -184,7 +178,6 @@ export async function pushShoppingItemCheck(
   token: string,
   item: ShoppingListItem,
   checked: boolean,
-  proxyUrl: string,
 ): Promise<void> {
   const now = new Date().toISOString();
   const syncItem = {
@@ -208,5 +201,5 @@ export async function pushShoppingItemCheck(
     },
   };
 
-  await syncPull(token, payload, proxyUrl);
+  await syncPull(token, payload);
 }

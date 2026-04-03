@@ -7,7 +7,6 @@ export function Settings() {
 
   const [rkEmail, setRkEmail] = useState(config.rkEmail);
   const [rkPassword, setRkPassword] = useState(config.rkPassword);
-  const [rkProxyUrl, setRkProxyUrl] = useState(config.rkProxyUrl);
   const [showRkPassword, setShowRkPassword] = useState(false);
   const [rkSaved, setRkSaved] = useState(false);
 
@@ -26,8 +25,7 @@ export function Settings() {
   useEffect(() => {
     setRkEmail(config.rkEmail);
     setRkPassword(config.rkPassword);
-    setRkProxyUrl(config.rkProxyUrl);
-  }, [config.rkEmail, config.rkPassword, config.rkProxyUrl]);
+  }, [config.rkEmail, config.rkPassword]);
 
   useEffect(() => {
     setKnusprEmail(config.knusprEmail);
@@ -40,7 +38,7 @@ export function Settings() {
   }, [config.openaiApiKey]);
 
   const handleRkSave = async () => {
-    await updateConfig({ ...config, rkEmail, rkPassword, rkProxyUrl });
+    await updateConfig({ ...config, rkEmail, rkPassword });
     setRkSaved(true);
     setTimeout(() => setRkSaved(false), 2000);
   };
@@ -77,7 +75,7 @@ export function Settings() {
     }
   };
 
-  const rkChanged = rkEmail !== config.rkEmail || rkPassword !== config.rkPassword || rkProxyUrl !== config.rkProxyUrl;
+  const rkChanged = rkEmail !== config.rkEmail || rkPassword !== config.rkPassword;
   const knusprChanged = knusprEmail !== config.knusprEmail || knusprPassword !== config.knusprPassword || knusprPrompt !== config.knusprPrompt;
   const openaiChanged = openaiApiKey !== config.openaiApiKey;
 
@@ -129,26 +127,6 @@ export function Settings() {
               {showRkPassword ? '\u{1F648}' : '\u{1F441}\u{FE0F}'}
             </button>
           </div>
-        </div>
-
-        <div className="api-key-input">
-          <label htmlFor="rkProxyUrl">CORS Proxy URL (required for production)</label>
-          <div className="input-group">
-            <input
-              id="rkProxyUrl"
-              type="url"
-              value={rkProxyUrl}
-              onChange={(e) => setRkProxyUrl(e.target.value)}
-              placeholder="https://your-worker.your-subdomain.workers.dev"
-              className="api-key-field"
-              style={{ fontFamily: 'inherit' }}
-            />
-          </div>
-          <p className="settings-hint">
-            RecipeKeeper's API doesn't support browser CORS. Deploy the included
-            Cloudflare Worker (<code>worker/</code> directory) and paste its URL here.
-            Not needed for local development.
-          </p>
         </div>
 
         <button

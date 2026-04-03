@@ -51,7 +51,6 @@ export async function getConfig(): Promise<AppConfig> {
       resolve({
         rkEmail: result?.rkEmail || '',
         rkPassword: result?.rkPassword || '',
-        rkProxyUrl: result?.rkProxyUrl || '',
         knusprEmail: result?.knusprEmail || '',
         knusprPassword: result?.knusprPassword || '',
         knusprPrompt: result?.knusprPrompt || '',

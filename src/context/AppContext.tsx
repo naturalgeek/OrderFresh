@@ -37,7 +37,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
-    config: { rkEmail: '', rkPassword: '', rkProxyUrl: '', knusprEmail: '', knusprPassword: '', knusprPrompt: '', openaiApiKey: '' },
+    config: { rkEmail: '', rkPassword: '', knusprEmail: '', knusprPassword: '', knusprPrompt: '', openaiApiKey: '' },
     isLoading: true,
     error: null,
     rkToken: null,
@@ -89,13 +89,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       let token = rkTokenRef.current;
       if (!token) {
-        token = await signIn(config.rkEmail, config.rkPassword, config.rkProxyUrl);
+        token = await signIn(config.rkEmail, config.rkPassword);
         rkTokenRef.current = token;
         setState(s => ({ ...s, rkToken: token }));
       }
 
       try {
-        const data = await pullShoppingData(token!, config.rkProxyUrl);
+        const data = await pullShoppingData(token!);
         const listId = data.lists.length > 0
           ? data.lists.sort((a, b) => a.Position - b.Position)[0].Id
           : null;
@@ -108,9 +108,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }));
       } catch (err) {
         if (err instanceof Error && err.message === 'AUTH_EXPIRED') {
-          token = await signIn(config.rkEmail, config.rkPassword, config.rkProxyUrl);
+          token = await signIn(config.rkEmail, config.rkPassword);
           rkTokenRef.current = token;
-          const data = await pullShoppingData(token, config.rkProxyUrl);
+          const data = await pullShoppingData(token);
           const listId = data.lists.length > 0
             ? data.lists.sort((a, b) => a.Position - b.Position)[0].Id
             : null;
@@ -128,11 +128,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
-      const isCors = msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ERR_FAILED');
-      const errorMsg = isCors && !import.meta.env.DEV
-        ? 'CORS error: RecipeKeeper API requires a proxy. Configure the CORS Proxy URL in Settings.'
-        : msg;
-      setState(s => ({ ...s, rkSyncing: false, rkSyncFailed: true, error: errorMsg }));
+      setState(s => ({ ...s, rkSyncing: false, rkSyncFailed: true, error: msg }));
     }
   }, []); // stable reference - uses refs internally
 
@@ -154,13 +150,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       try {
-        await pushShoppingItemCheck(token, item, checked, config.rkProxyUrl);
+        await pushShoppingItemCheck(token, item, checked);
       } catch (err) {
         if (err instanceof Error && err.message === 'AUTH_EXPIRED') {
-          token = await signIn(config.rkEmail, config.rkPassword, config.rkProxyUrl);
+          token = await signIn(config.rkEmail, config.rkPassword);
           rkTokenRef.current = token;
           setState(s => ({ ...s, rkToken: token }));
-          await pushShoppingItemCheck(token, item, checked, config.rkProxyUrl);
+          await pushShoppingItemCheck(token, item, checked);
         } else {
           throw err;
         }
