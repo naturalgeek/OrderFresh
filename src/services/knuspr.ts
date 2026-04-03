@@ -125,7 +125,7 @@ async function initialize(email: string, password: string): Promise<void> {
       params: {
         protocolVersion: '2025-03-26',
         capabilities: {},
-        clientInfo: { name: 'orderfresh', version: '1.0.0' },
+        clientInfo: { name: 'recipekeeper-assesser', version: '1.0.0' },
       },
       id: nextId(),
     },
