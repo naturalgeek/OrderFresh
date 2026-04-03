@@ -225,13 +225,42 @@ export interface KnusprProduct {
   image?: string;
 }
 
+// Strip quantities, measurements, and preparation notes from ingredient text
+// "2 tablespoons extra virgin olive oil" → "extra virgin olive oil"
+// "1/2 cup diced onions, finely chopped" → "onions"
+function cleanIngredientQuery(raw: string): string {
+  let q = raw
+    // Remove leading numbers, fractions, ranges: "2", "1/2", "2-3", "½"
+    .replace(/^[\d½¼¾⅓⅔⅛.,/\-–\s]+/, '')
+    // Remove measurement units (English + German)
+    .replace(/\b(tablespoons?|tbsp|teaspoons?|tsp|cups?|ounces?|oz|pounds?|lbs?|grams?|g|kilograms?|kg|ml|liters?|l|pinch(?:es)?|bunch(?:es)?|cloves?|cans?|sticks?|pieces?|slices?|heads?|stalks?|sprigs?|handfuls?|dash(?:es)?|EL|TL|Stück|Bund|Prise[n]?|Dose[n]?|Scheibe[n]?|Zehe[n]?|Becher|Packung(?:en)?|große[rn]?|kleine[rn]?|mittlere[rn]?|large|medium|small)\b/gi, '')
+    // Remove preparation words after comma: ", finely chopped" / ", diced"
+    .replace(/,\s*(finely|roughly|thinly|freshly|coarsely)?\s*(chopped|diced|minced|sliced|grated|crushed|peeled|trimmed|halved|quartered|julienned|torn|zested|juiced|melted|softened|divided|optional|to taste|gehackt|geschnitten|gewürfelt|gerieben|geschält|gehobelt|fein|grob).*$/i, '')
+    // Remove parenthetical notes: "(about 200g)", "(optional)"
+    .replace(/\([^)]*\)/g, '')
+    // Remove "dried", "fresh", "ground" etc. that might confuse search
+    .replace(/\b(dried|fresh|ground|whole|raw|cooked|frozen|canned|packed|unpacked|extra.?virgin)\b/gi, '')
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // If we stripped everything, fall back to original
+  if (!q || q.length < 2) q = raw.trim();
+
+  return q;
+}
+
 export async function searchProducts(
   query: string,
   email: string,
   password: string,
   prompt?: string,
 ): Promise<KnusprProduct[]> {
-  const searchQuery = prompt ? `${prompt}: ${query}` : query;
+  const cleaned = cleanIngredientQuery(query);
+  // Prompt goes as a separate hint, not concatenated into the keyword
+  const searchQuery = prompt ? `${cleaned} ${prompt}` : cleaned;
+
+  console.log('[knuspr] search query:', JSON.stringify({ original: query, cleaned, searchQuery }));
 
   const [dataResult, imgResult] = await Promise.all([
     callTool('batch_search_products', { queries: [{ keyword: searchQuery }] }, email, password),
