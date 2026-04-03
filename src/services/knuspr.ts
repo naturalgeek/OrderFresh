@@ -225,43 +225,15 @@ export interface KnusprProduct {
   image?: string;
 }
 
-// Strip quantities, measurements, and preparation notes from ingredient text
-// "2 tablespoons extra virgin olive oil" → "extra virgin olive oil"
-// "1/2 cup diced onions, finely chopped" → "onions"
-function cleanIngredientQuery(raw: string): string {
-  let q = raw
-    // Remove leading numbers, fractions, ranges: "2", "1/2", "2-3", "½"
-    .replace(/^[\d½¼¾⅓⅔⅛.,/\-–\s]+/, '')
-    // Remove measurement units (English + German)
-    .replace(/\b(tablespoons?|tbsp|teaspoons?|tsp|cups?|ounces?|oz|pounds?|lbs?|grams?|g|kilograms?|kg|ml|liters?|l|pinch(?:es)?|bunch(?:es)?|cloves?|cans?|sticks?|pieces?|slices?|heads?|stalks?|sprigs?|handfuls?|dash(?:es)?|EL|TL|Stück|Bund|Prise[n]?|Dose[n]?|Scheibe[n]?|Zehe[n]?|Becher|Packung(?:en)?|große[rn]?|kleine[rn]?|mittlere[rn]?|large|medium|small)\b/gi, '')
-    // Remove preparation words after comma: ", finely chopped" / ", diced"
-    .replace(/,\s*(finely|roughly|thinly|freshly|coarsely)?\s*(chopped|diced|minced|sliced|grated|crushed|peeled|trimmed|halved|quartered|julienned|torn|zested|juiced|melted|softened|divided|optional|to taste|gehackt|geschnitten|gewürfelt|gerieben|geschält|gehobelt|fein|grob).*$/i, '')
-    // Remove parenthetical notes: "(about 200g)", "(optional)"
-    .replace(/\([^)]*\)/g, '')
-    // Remove "dried", "fresh", "ground" etc. that might confuse search
-    .replace(/\b(dried|fresh|ground|whole|raw|cooked|frozen|canned|packed|unpacked|extra.?virgin)\b/gi, '')
-    // Collapse whitespace
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // If we stripped everything, fall back to original
-  if (!q || q.length < 2) q = raw.trim();
-
-  return q;
-}
-
 export async function searchProducts(
   query: string,
   email: string,
   password: string,
   prompt?: string,
 ): Promise<KnusprProduct[]> {
-  const cleaned = cleanIngredientQuery(query);
-  // Prompt goes as a separate hint, not concatenated into the keyword
-  const searchQuery = prompt ? `${cleaned} ${prompt}` : cleaned;
+  const searchQuery = prompt ? `${prompt}: ${query}` : query;
 
-  console.log('[knuspr] search query:', JSON.stringify({ original: query, cleaned, searchQuery }));
-
+  // Two parallel searches: one for product data, one for images
   const [dataResult, imgResult] = await Promise.all([
     callTool('batch_search_products', { queries: [{ keyword: searchQuery }] }, email, password),
     callTool('batch_search_products', { queries: [{ keyword: searchQuery, include_fields: ['imgPath'] }] }, email, password)
@@ -269,18 +241,17 @@ export async function searchProducts(
   ]);
 
   const text = getToolText(dataResult);
-  console.log('[knuspr] raw search response:', text);
 
   try {
     const parsed = JSON.parse(text);
     const products: KnusprProduct[] = [];
+    const items = Array.isArray(parsed) ? parsed : parsed.results || parsed.products || [parsed];
 
     // Build image map from parallel request
     const imageMap: Record<number, string> = {};
     if (imgResult) {
       try {
-        const imgText = getToolText(imgResult);
-        const imgParsed = JSON.parse(imgText);
+        const imgParsed = JSON.parse(getToolText(imgResult));
         const imgItems = Array.isArray(imgParsed) ? imgParsed : imgParsed.results || [imgParsed];
         for (const item of imgItems) {
           for (const p of item.products || []) {
@@ -290,40 +261,27 @@ export async function searchProducts(
       } catch { /* ignore */ }
     }
 
-    // Recursively find all objects with a productId field
-    function extractProducts(obj: unknown): void {
-      if (!obj || typeof obj !== 'object') return;
-      if (Array.isArray(obj)) {
-        for (const el of obj) extractProducts(el);
-        return;
-      }
-      const rec = obj as Record<string, unknown>;
-      const pid = rec.productId || rec.id || rec.product_id;
-      if (pid && (rec.productName || rec.name || rec.title)) {
-        const price = rec.price && typeof rec.price === 'object'
-          ? `${(rec.price as Record<string, unknown>).full} ${(rec.price as Record<string, unknown>).currency || '\u20AC'}`
-          : (rec.price != null ? String(rec.price) : undefined);
-        products.push({
-          id: Number(pid),
-          name: String(rec.productName || rec.name || rec.title || ''),
-          price,
-          unit: rec.textualAmount ? String(rec.textualAmount) : (rec.unit ? String(rec.unit) : undefined),
-          image: resolveImageUrl(imageMap[Number(pid)] || rec.imgPath || rec.image || rec.image_url),
-        });
-        return; // don't recurse into product children
-      }
-      // Recurse into nested arrays/objects
-      for (const val of Object.values(rec)) {
-        if (val && typeof val === 'object') extractProducts(val);
+    for (const item of items) {
+      const prods = item.products || item.items || (Array.isArray(item) ? item : [item]);
+      for (const p of prods) {
+        const pid = p.productId || p.id || p.product_id;
+        if (pid) {
+          const price = p.price && typeof p.price === 'object'
+            ? `${p.price.full} ${p.price.currency || '\u20AC'}`
+            : (p.price != null ? String(p.price) : undefined);
+          products.push({
+            id: Number(pid),
+            name: String(p.productName || p.name || p.title || ''),
+            price,
+            unit: p.textualAmount ? String(p.textualAmount) : (p.unit ? String(p.unit) : undefined),
+            image: resolveImageUrl(imageMap[Number(pid)] || p.imgPath || p.image || p.image_url),
+          });
+        }
       }
     }
 
-    extractProducts(parsed);
-
-    console.log('[knuspr] parsed products:', products.length);
     return products;
-  } catch (e) {
-    console.error('[knuspr] parse error:', e, 'raw:', text);
+  } catch {
     return [{ id: 0, name: text }];
   }
 }
