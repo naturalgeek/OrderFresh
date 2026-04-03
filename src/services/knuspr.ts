@@ -179,7 +179,9 @@ export async function callTool(
   password: string,
 ): Promise<McpToolResult> {
   if (!sessionId && !initialized) {
-    await initialize(email, password);
+    // Full handshake: initialize + list tools (some MCP servers require
+    // tools/list before tools/call will return results)
+    await listTools(email, password);
   }
 
   const response = await mcpRequest(
