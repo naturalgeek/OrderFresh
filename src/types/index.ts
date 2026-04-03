@@ -2,6 +2,8 @@ export interface AppConfig {
   // RecipeKeeper credentials
   rkEmail: string;
   rkPassword: string;
+  // CORS proxy URL for RecipeKeeper (required in production)
+  rkProxyUrl: string;
   // Knuspr credentials
   knusprEmail: string;
   knusprPassword: string;

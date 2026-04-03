@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { AppConfig, ShoppingData, ShoppingListItem, QuickListItem } from '../types/index.ts';
 import { getConfig, saveConfig } from '../services/storage.ts';
@@ -11,6 +11,7 @@ interface AppState {
   // RecipeKeeper state
   rkToken: string | null;
   rkSyncing: boolean;
+  rkSyncFailed: boolean;
   shoppingData: ShoppingData | null;
   selectedListId: string | null;
   // Quick list state
@@ -36,15 +37,22 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
-    config: { rkEmail: '', rkPassword: '', knusprEmail: '', knusprPassword: '', knusprPrompt: '', openaiApiKey: '' },
+    config: { rkEmail: '', rkPassword: '', rkProxyUrl: '', knusprEmail: '', knusprPassword: '', knusprPrompt: '', openaiApiKey: '' },
     isLoading: true,
     error: null,
     rkToken: null,
     rkSyncing: false,
+    rkSyncFailed: false,
     shoppingData: null,
     selectedListId: null,
     quickItems: [],
   });
+
+  // Use refs for values needed in callbacks to avoid dependency churn
+  const configRef = useRef(state.config);
+  configRef.current = state.config;
+  const rkTokenRef = useRef(state.rkToken);
+  rkTokenRef.current = state.rkToken;
 
   useEffect(() => {
     const init = async () => {
@@ -61,7 +69,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateConfig = useCallback(async (config: AppConfig) => {
     await saveConfig(config);
-    setState(s => ({ ...s, config }));
+    // Reset sync failed flag when config changes so user can retry
+    setState(s => ({ ...s, config, rkSyncFailed: false }));
   }, []);
 
   const setError = useCallback((error: string | null) => {
@@ -69,7 +78,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const syncRecipeKeeper = useCallback(async () => {
-    const { config, rkToken } = state;
+    const config = configRef.current;
     if (!config.rkEmail || !config.rkPassword) {
       setState(s => ({ ...s, error: 'Configure RecipeKeeper credentials in Settings first' }));
       return;
@@ -78,14 +87,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState(s => ({ ...s, rkSyncing: true, error: null }));
 
     try {
-      let token = rkToken;
+      let token = rkTokenRef.current;
       if (!token) {
-        token = await signIn(config.rkEmail, config.rkPassword);
+        token = await signIn(config.rkEmail, config.rkPassword, config.rkProxyUrl);
+        rkTokenRef.current = token;
         setState(s => ({ ...s, rkToken: token }));
       }
 
       try {
-        const data = await pullShoppingData(token!);
+        const data = await pullShoppingData(token!, config.rkProxyUrl);
         const listId = data.lists.length > 0
           ? data.lists.sort((a, b) => a.Position - b.Position)[0].Id
           : null;
@@ -94,12 +104,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           shoppingData: data,
           selectedListId: s.selectedListId || listId,
           rkSyncing: false,
+          rkSyncFailed: false,
         }));
       } catch (err) {
         if (err instanceof Error && err.message === 'AUTH_EXPIRED') {
-          // Re-authenticate
-          token = await signIn(config.rkEmail, config.rkPassword);
-          const data = await pullShoppingData(token);
+          token = await signIn(config.rkEmail, config.rkPassword, config.rkProxyUrl);
+          rkTokenRef.current = token;
+          const data = await pullShoppingData(token, config.rkProxyUrl);
           const listId = data.lists.length > 0
             ? data.lists.sort((a, b) => a.Position - b.Position)[0].Id
             : null;
@@ -109,6 +120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             shoppingData: data,
             selectedListId: s.selectedListId || listId,
             rkSyncing: false,
+            rkSyncFailed: false,
           }));
         } else {
           throw err;
@@ -116,12 +128,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
-      setState(s => ({ ...s, rkSyncing: false, error: msg }));
+      const isCors = msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ERR_FAILED');
+      const errorMsg = isCors && !import.meta.env.DEV
+        ? 'CORS error: RecipeKeeper API requires a proxy. Configure the CORS Proxy URL in Settings.'
+        : msg;
+      setState(s => ({ ...s, rkSyncing: false, rkSyncFailed: true, error: errorMsg }));
     }
-  }, [state.config, state.rkToken]);
+  }, []); // stable reference - uses refs internally
 
   const toggleRkItem = useCallback(async (item: ShoppingListItem, checked: boolean) => {
-    let token = state.rkToken;
+    let token = rkTokenRef.current;
+    const config = configRef.current;
     if (!token) return;
 
     // Optimistic update
@@ -137,12 +154,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     try {
       try {
-        await pushShoppingItemCheck(token, item, checked);
+        await pushShoppingItemCheck(token, item, checked, config.rkProxyUrl);
       } catch (err) {
         if (err instanceof Error && err.message === 'AUTH_EXPIRED') {
-          token = await signIn(state.config.rkEmail, state.config.rkPassword);
+          token = await signIn(config.rkEmail, config.rkPassword, config.rkProxyUrl);
+          rkTokenRef.current = token;
           setState(s => ({ ...s, rkToken: token }));
-          await pushShoppingItemCheck(token, item, checked);
+          await pushShoppingItemCheck(token, item, checked, config.rkProxyUrl);
         } else {
           throw err;
         }
@@ -161,7 +179,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         };
       });
     }
-  }, [state.rkToken, state.config.rkEmail, state.config.rkPassword]);
+  }, []); // stable reference - uses refs internally
 
   const selectList = useCallback((listId: string | null) => {
     setState(s => ({ ...s, selectedListId: listId }));

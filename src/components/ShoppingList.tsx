@@ -13,7 +13,7 @@ interface CartState {
 export function ShoppingList() {
   const {
     config, shoppingData, selectedListId, selectList,
-    rkSyncing, syncRecipeKeeper, toggleRkItem, error, setError,
+    rkSyncing, rkSyncFailed, syncRecipeKeeper, toggleRkItem, error, setError,
   } = useApp();
 
   const [cartStates, setCartStates] = useState<Record<string, CartState>>({});
@@ -22,12 +22,12 @@ export function ShoppingList() {
   const rkConfigured = !!(config.rkEmail && config.rkPassword);
   const knusprConfigured = !!(config.knusprEmail && config.knusprPassword);
 
-  // Auto-sync on first load when credentials are configured
+  // Auto-sync on first load when credentials are configured (don't retry on failure)
   useEffect(() => {
-    if (rkConfigured && !shoppingData && !rkSyncing) {
+    if (rkConfigured && !shoppingData && !rkSyncing && !rkSyncFailed) {
       syncRecipeKeeper();
     }
-  }, [rkConfigured, shoppingData, rkSyncing, syncRecipeKeeper]);
+  }, [rkConfigured, shoppingData, rkSyncing, rkSyncFailed, syncRecipeKeeper]);
 
   const lists = shoppingData?.lists.sort((a, b) => a.Position - b.Position) || [];
   const selectedList = lists.find(l => l.Id === selectedListId);
